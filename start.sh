@@ -68,13 +68,13 @@ done
 
 json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
-# http METHOD PATH JSON_BODY [TOKEN] -> sets HTTP_STATUS and HTTP_BODY
+# http METHOD PATH JSON_BODY [TOKEN] -> sets HTTP_STATUS and HTTP_BODY (Shiori answers one JSON line)
 http() {
   auth=""; [ -n "${4:-}" ] && auth="Authorization: Bearer $4\r\n"
   resp=$(printf "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n${auth}Content-Length: %s\r\nConnection: close\r\n\r\n%s" \
     "$1" "$2" "$(printf '%s' "$3" | wc -c)" "$3" | nc -w 10 127.0.0.1 "$SETUP_PORT" 2>/dev/null || true)
   HTTP_STATUS=$(printf '%s\n' "$resp" | head -n 1 | cut -d' ' -f2)
-  HTTP_BODY=$(printf '%s\n' "$resp" | sed '1,/^\r*$/d')
+  HTTP_BODY=$(printf '%s\n' "$resp" | tail -n 1)
 }
 
 login() { # $1 user, $2 password -> prints token or nothing
@@ -83,7 +83,16 @@ login() { # $1 user, $2 password -> prints token or nothing
   return 0
 }
 
+default_login_works() { # fails closed: anything but a clear 400 counts as "still works"
+  http POST /api/v1/auth/login '{"username":"shiori","password":"gopher"}'
+  [ "$HTTP_STATUS" != 400 ]
+}
+
 TOKEN=$(login shiori gopher)
+if [ -z "$TOKEN" ] && default_login_works; then
+  log "could not check Shiori's default shiori/gopher account (login answered '${HTTP_STATUS:-nothing}'). Refusing to start." >&2
+  stop_setup; exit 1
+fi
 if [ -n "$TOKEN" ]; then
   if [ -z "$ADMIN_USER" ] || [ -z "$ADMIN_PASS" ]; then
     log "Shiori still has its default shiori/gopher account and SHIORI_ADMIN_USERNAME / SHIORI_ADMIN_PASSWORD are not set. Refusing to start." >&2
@@ -98,7 +107,7 @@ if [ -n "$TOKEN" ]; then
     log "could not replace the default shiori/gopher account. Refusing to start." >&2
     stop_setup; exit 1
   fi
-  if [ -n "$(login shiori gopher)" ]; then
+  if default_login_works; then
     log "default shiori/gopher login still works. Refusing to start." >&2
     stop_setup; exit 1
   fi
