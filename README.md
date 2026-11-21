@@ -1,3 +1,5 @@
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/shiori-2?utm_medium=integration&utm_source=button&utm_campaign=shiori)
+
 # Shiori on Railway
 
 One-click Railway template for [Shiori](https://github.com/go-shiori/shiori), the simple open-source (MIT) bookmark manager written in Go. Shiori saves the links you keep, fetches a readable copy of each page and can store a full offline archive, so your reading list survives link rot.
@@ -46,7 +48,7 @@ Optional upstream settings (add them in the Variables tab when you need them): `
 
 ## Resources
 
-Shiori idles at about 20 MB of RAM and fits Railway's Free plan (0.5 GB, 1 vCPU). The image sets `GOMAXPROCS=2` and `GOMEMLIMIT=400MiB` so the Go runtime stays inside small plans.
+Shiori idles at a few MB of RAM (Postgres at about 90 MB) and fits Railway's Free plan (0.5 GB, 1 vCPU). The image sets `GOMAXPROCS=2` and `GOMEMLIMIT=400MiB` so the Go runtime stays inside small plans.
 
 ## Updates
 
