@@ -1,0 +1,24 @@
+# Local test stack: the same variables the Railway template sets.
+# docker compose -f test/compose.yml -p her-2831 up -d --build
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localtestpw
+      POSTGRES_DB: railway
+    volumes: [pg:/var/lib/postgresql/data]
+  shiori:
+    build: ..
+    environment:
+      PORT: "8080"
+      SHIORI_DIR: /shiori
+      SHIORI_DATABASE_URL: postgresql://postgres:localtestpw@postgres:5432/railway
+      SHIORI_HTTP_SECRET_KEY: local-test-secret-key-0123456789abcdef
+      SHIORI_ADMIN_USERNAME: admin
+      SHIORI_ADMIN_PASSWORD: LocalTestPassw0rd
+    ports: ["8080:8080"]
+    volumes: [data:/shiori]
+    mem_limit: 512m
+    cpus: 1
+volumes: { pg: {}, data: {} }
