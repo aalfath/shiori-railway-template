@@ -4,6 +4,8 @@
 # 2. On a private loopback port, replaces Shiori's built-in shiori/gopher owner
 #    account with SHIORI_ADMIN_USERNAME / SHIORI_ADMIN_PASSWORD before the app
 #    is ever reachable from outside.
+#    The calls use BusyBox nc (already in the official image), so the image
+#    adds no packages.
 # 3. Execs Shiori on $PORT, so a crash or OOM kill ends the container with a
 #    non-zero code and Railway's ON_FAILURE policy restarts it.
 set -eu
@@ -51,7 +53,7 @@ while :; do
   start_setup
   i=0; up=0
   while [ "$i" -lt 60 ]; do
-    if curl -fsS "$BASE/system/liveness" >/dev/null 2>&1; then up=1; break; fi
+    if wget -q -T 3 -O /dev/null "$BASE/system/liveness" 2>/dev/null; then up=1; break; fi
     kill -0 "$SETUP_PID" 2>/dev/null || break
     i=$((i+1)); sleep 1
   done
@@ -66,22 +68,28 @@ done
 
 json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
-login() { # $1 user, $2 password -> prints token or nothing
-  body=$(printf '{"username":"%s","password":"%s"}' "$(json_esc "$1")" "$(json_esc "$2")")
-  curl -fsS -X POST -H 'Content-Type: application/json' -d "$body" "$BASE/api/v1/auth/login" 2>/dev/null \
-    | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'
+# http METHOD PATH JSON_BODY [TOKEN] -> sets HTTP_STATUS and HTTP_BODY
+http() {
+  auth=""; [ -n "${4:-}" ] && auth="Authorization: Bearer $4\r\n"
+  resp=$(printf "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n${auth}Content-Length: %s\r\nConnection: close\r\n\r\n%s" \
+    "$1" "$2" "$(printf '%s' "$3" | wc -c)" "$3" | nc -w 10 127.0.0.1 "$SETUP_PORT" 2>/dev/null || true)
+  HTTP_STATUS=$(printf '%s\n' "$resp" | head -n 1 | cut -d' ' -f2)
+  HTTP_BODY=$(printf '%s\n' "$resp" | sed '1,/^\r*$/d')
 }
 
-TOKEN=$(login shiori gopher || true)
+login() { # $1 user, $2 password -> prints token or nothing
+  http POST /api/v1/auth/login "$(printf '{"username":"%s","password":"%s"}' "$(json_esc "$1")" "$(json_esc "$2")")"
+  [ "$HTTP_STATUS" = 200 ] && printf '%s' "$HTTP_BODY" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'
+  return 0
+}
+
+TOKEN=$(login shiori gopher)
 if [ -n "$TOKEN" ]; then
   if [ -z "$ADMIN_USER" ] || [ -z "$ADMIN_PASS" ]; then
     log "Shiori still has its default shiori/gopher account and SHIORI_ADMIN_USERNAME / SHIORI_ADMIN_PASSWORD are not set. Refusing to start." >&2
     stop_setup; exit 1
   fi
-  patch() {
-    curl -fsS -o /dev/null -X PATCH -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
-      -d "$1" "$BASE/api/v1/auth/account"
-  }
+  patch() { http PATCH /api/v1/auth/account "$1" "$TOKEN"; [ "$HTTP_STATUS" = 200 ]; }
   if patch "$(printf '{"username":"%s","old_password":"gopher","new_password":"%s"}' "$(json_esc "$ADMIN_USER")" "$(json_esc "$ADMIN_PASS")")"; then
     log "replaced the default shiori/gopher account with owner account '$ADMIN_USER'"
   elif patch "$(printf '{"old_password":"gopher","new_password":"%s"}' "$(json_esc "$ADMIN_PASS")")"; then
@@ -90,7 +98,7 @@ if [ -n "$TOKEN" ]; then
     log "could not replace the default shiori/gopher account. Refusing to start." >&2
     stop_setup; exit 1
   fi
-  if [ -n "$(login shiori gopher || true)" ]; then
+  if [ -n "$(login shiori gopher)" ]; then
     log "default shiori/gopher login still works. Refusing to start." >&2
     stop_setup; exit 1
   fi
