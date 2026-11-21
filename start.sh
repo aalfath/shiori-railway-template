@@ -71,8 +71,10 @@ json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 # http METHOD PATH JSON_BODY [TOKEN] -> sets HTTP_STATUS and HTTP_BODY (Shiori answers one JSON line)
 http() {
   auth=""; [ -n "${4:-}" ] && auth="Authorization: Bearer $4\r\n"
-  resp=$(printf "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n${auth}Content-Length: %s\r\nConnection: close\r\n\r\n%s" \
-    "$1" "$2" "$(printf '%s' "$3" | wc -c)" "$3" | nc -w 10 127.0.0.1 "$SETUP_PORT" 2>/dev/null || true)
+  # Keep our side open for 2 s after the request: when BusyBox nc half-closes the socket,
+  # Go's server cancels the request context and the login query fails.
+  resp=$( { printf "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n${auth}Content-Length: %s\r\nConnection: close\r\n\r\n%s" \
+    "$1" "$2" "$(printf '%s' "$3" | wc -c)" "$3"; sleep 2; } | nc -w 10 127.0.0.1 "$SETUP_PORT" 2>/dev/null || true)
   HTTP_STATUS=$(printf '%s\n' "$resp" | head -n 1 | cut -d' ' -f2)
   HTTP_BODY=$(printf '%s\n' "$resp" | tail -n 1)
 }
